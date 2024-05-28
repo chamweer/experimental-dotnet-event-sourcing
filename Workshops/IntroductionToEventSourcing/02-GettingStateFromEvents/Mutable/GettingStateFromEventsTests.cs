@@ -33,7 +33,7 @@ public abstract record ShoppingCartEvent
     ): ShoppingCartEvent;
 
     // This won't allow external inheritance
-    private ShoppingCartEvent(){}
+    private ShoppingCartEvent() { }
 }
 
 // VALUE OBJECTS
@@ -56,6 +56,97 @@ public class ShoppingCart
     public IList<PricedProductItem> ProductItems { get; set; } = new List<PricedProductItem>();
     public DateTime? ConfirmedAt { get; set; }
     public DateTime? CanceledAt { get; set; }
+
+    public void Evolve(object @event)
+    {
+        switch (@event)
+        {
+            case ShoppingCartOpened e:
+                Apply(e);
+                break;
+            case ProductItemAddedToShoppingCart e:
+                Apply(e);
+                break;
+            case ProductItemRemovedFromShoppingCart e:
+                Apply(e);
+                break;
+            case ShoppingCartConfirmed e:
+                Apply(e);
+                break;
+            case ShoppingCartCanceled e:
+                Apply(e);
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported event type: {@event.GetType().Name}");
+        }
+    }
+
+    private void Apply(ShoppingCartOpened @event)
+    {
+        ThrowIfCartNotCreated();
+
+        Id = @event.ShoppingCartId;
+        ClientId = @event.ClientId;
+        Status = ShoppingCartStatus.Pending;
+    }
+
+    private void Apply(ProductItemAddedToShoppingCart @event)
+    {
+        ThrowIfCartNotCreated();
+
+        var existingProduct = ProductItems.SingleOrDefault(p => p.ProductId == @event.ProductItem.ProductId);
+        if (existingProduct is null)
+        {
+            ProductItems.Add(@event.ProductItem);
+            return;
+        }
+
+        existingProduct.Quantity += @event.ProductItem.Quantity;
+    }
+
+    private void Apply(ProductItemRemovedFromShoppingCart @event)
+    {
+        ThrowIfCartNotCreated();
+
+        var existingProduct = ProductItems.SingleOrDefault(p => p.ProductId == @event.ProductItem.ProductId) ??
+            throw new InvalidOperationException($"Product with id {@event.ProductItem.ProductId} not found in the shopping cart.");
+
+        if (existingProduct.Quantity < @event.ProductItem.Quantity)
+        {
+            throw new InvalidOperationException($"Cannot remove {@event.ProductItem.Quantity} items of product with id {@event.ProductItem.ProductId} from the shopping cart. There are only {existingProduct.Quantity} items.");
+        }
+
+        if (existingProduct.Quantity == @event.ProductItem.Quantity)
+        {
+            ProductItems.Remove(existingProduct);
+        }
+
+        existingProduct.Quantity -= @event.ProductItem.Quantity;
+    }
+
+    private void Apply(ShoppingCartConfirmed @event)
+    {
+        ThrowIfCartNotCreated();
+
+        ConfirmedAt = @event.ConfirmedAt;
+        Status = ShoppingCartStatus.Confirmed;
+    }
+
+    private void Apply(ShoppingCartCanceled @event)
+    {
+        ThrowIfCartNotCreated();
+
+        CanceledAt = @event.CanceledAt;
+        Status = ShoppingCartStatus.Canceled;
+    }
+
+    private void ThrowIfCartNotCreated()
+    {
+        if (Id == Guid.Empty)
+        {
+            throw new InvalidOperationException("Shopping cart not created.");
+        }
+    }
 }
 
 public enum ShoppingCartStatus
@@ -68,8 +159,86 @@ public enum ShoppingCartStatus
 public class GettingStateFromEventsTests
 {
     // 1. Add logic here
-    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events) =>
-        throw new NotImplementedException();
+    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events)
+    {
+        ShoppingCart cart = new();
+        foreach (var @event in events)
+        {
+            cart = Apply(cart, @event);
+        }
+
+        return cart;
+    }
+
+    public static ShoppingCart Apply(ShoppingCart cart, object @event)
+    {
+        switch (@event)
+        {
+            case ShoppingCartOpened e:
+                Apply(cart, e);
+                break;
+            case ProductItemAddedToShoppingCart e:
+                Apply(cart, e);
+                break;
+            case ProductItemRemovedFromShoppingCart e:
+                Apply(cart, e);
+                break;
+            case ShoppingCartConfirmed e:
+                Apply(cart, e);
+                break;
+            case ShoppingCartCanceled e:
+                Apply(cart, e);
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported event type: {@event.GetType().Name}");
+        }
+
+        return cart;
+    }
+
+    private static void Apply(ShoppingCart cart, ShoppingCartOpened @event)
+    {
+        cart.Id = @event.ShoppingCartId;
+        cart.ClientId = @event.ClientId;
+    }
+
+    private static void Apply(ShoppingCart cart, ProductItemAddedToShoppingCart @event)
+    {
+        var existingProduct = cart.ProductItems.FirstOrDefault(p => p.ProductId == @event.ProductItem.ProductId);
+        if (existingProduct is not null)
+        {
+            existingProduct.Quantity += @event.ProductItem.Quantity;
+            return;
+        }
+
+        cart.ProductItems.Add(new PricedProductItem
+        {
+            ProductId = @event.ProductItem.ProductId,
+            Quantity = @event.ProductItem.Quantity,
+            UnitPrice = @event.ProductItem.UnitPrice
+        });
+    }
+
+    private static void Apply(ShoppingCart cart, ProductItemRemovedFromShoppingCart @event)
+    {
+        var existingProduct = cart.ProductItems.FirstOrDefault(p => p.ProductId == @event.ProductItem.ProductId);
+        if (existingProduct is null)
+        {
+            return;
+        }
+
+        existingProduct.Quantity -= @event.ProductItem.Quantity;
+    }
+
+    private static void Apply(ShoppingCart cart, ShoppingCartConfirmed @event)
+    {
+        cart.ConfirmedAt = @event.ConfirmedAt;
+    }
+
+    private static void Apply(ShoppingCart cart, ShoppingCartCanceled @event)
+    {
+        cart.CanceledAt = @event.CanceledAt;
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
@@ -82,17 +251,23 @@ public class GettingStateFromEventsTests
         var twoPairsOfShoes =
             new PricedProductItem
             {
-                ProductId = shoesId, Quantity = 2, UnitPrice = 100
+                ProductId = shoesId,
+                Quantity = 2,
+                UnitPrice = 100
             };
         var pairOfShoes =
             new PricedProductItem
             {
-                ProductId = shoesId, Quantity = 1, UnitPrice = 100
+                ProductId = shoesId,
+                Quantity = 1,
+                UnitPrice = 100
             };
         var tShirt =
             new PricedProductItem
             {
-                ProductId = tShirtId, Quantity = 1, UnitPrice = 50
+                ProductId = tShirtId,
+                Quantity = 1,
+                UnitPrice = 50
             };
 
         var events = new ShoppingCartEvent[]
