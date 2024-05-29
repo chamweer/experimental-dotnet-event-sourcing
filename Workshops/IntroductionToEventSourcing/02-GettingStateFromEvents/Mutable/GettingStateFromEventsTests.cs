@@ -83,8 +83,6 @@ public class ShoppingCart
 
     private void Apply(ShoppingCartOpened @event)
     {
-        ThrowIfCartNotCreated();
-
         Id = @event.ShoppingCartId;
         ClientId = @event.ClientId;
         Status = ShoppingCartStatus.Pending;
@@ -164,80 +162,10 @@ public class GettingStateFromEventsTests
         ShoppingCart cart = new();
         foreach (var @event in events)
         {
-            cart = Apply(cart, @event);
+            cart.Evolve(@event);
         }
 
         return cart;
-    }
-
-    public static ShoppingCart Apply(ShoppingCart cart, object @event)
-    {
-        switch (@event)
-        {
-            case ShoppingCartOpened e:
-                Apply(cart, e);
-                break;
-            case ProductItemAddedToShoppingCart e:
-                Apply(cart, e);
-                break;
-            case ProductItemRemovedFromShoppingCart e:
-                Apply(cart, e);
-                break;
-            case ShoppingCartConfirmed e:
-                Apply(cart, e);
-                break;
-            case ShoppingCartCanceled e:
-                Apply(cart, e);
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported event type: {@event.GetType().Name}");
-        }
-
-        return cart;
-    }
-
-    private static void Apply(ShoppingCart cart, ShoppingCartOpened @event)
-    {
-        cart.Id = @event.ShoppingCartId;
-        cart.ClientId = @event.ClientId;
-    }
-
-    private static void Apply(ShoppingCart cart, ProductItemAddedToShoppingCart @event)
-    {
-        var existingProduct = cart.ProductItems.FirstOrDefault(p => p.ProductId == @event.ProductItem.ProductId);
-        if (existingProduct is not null)
-        {
-            existingProduct.Quantity += @event.ProductItem.Quantity;
-            return;
-        }
-
-        cart.ProductItems.Add(new PricedProductItem
-        {
-            ProductId = @event.ProductItem.ProductId,
-            Quantity = @event.ProductItem.Quantity,
-            UnitPrice = @event.ProductItem.UnitPrice
-        });
-    }
-
-    private static void Apply(ShoppingCart cart, ProductItemRemovedFromShoppingCart @event)
-    {
-        var existingProduct = cart.ProductItems.FirstOrDefault(p => p.ProductId == @event.ProductItem.ProductId);
-        if (existingProduct is null)
-        {
-            return;
-        }
-
-        existingProduct.Quantity -= @event.ProductItem.Quantity;
-    }
-
-    private static void Apply(ShoppingCart cart, ShoppingCartConfirmed @event)
-    {
-        cart.ConfirmedAt = @event.ConfirmedAt;
-    }
-
-    private static void Apply(ShoppingCart cart, ShoppingCartCanceled @event)
-    {
-        cart.CanceledAt = @event.CanceledAt;
     }
 
     [Fact]
