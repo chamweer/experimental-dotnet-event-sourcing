@@ -52,8 +52,11 @@ public record ProductItem(
 public class GettingStateFromEventsTests
 {
     // TODO: Fill append events logic here.
-    private static Task AppendEvents(IDocumentSession documentSession, Guid streamId, object[] events, CancellationToken ct) =>
-        throw new NotImplementedException();
+    private static Task AppendEvents(IDocumentSession documentSession, Guid streamId, object[] events, CancellationToken ct)
+    {
+        _ = documentSession.Events.Append(streamId, events);
+        return documentSession.SaveChangesAsync(ct);
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]
@@ -78,13 +81,20 @@ public class GettingStateFromEventsTests
         };
 
         const string connectionString =
-            "PORT = 5432; HOST = localhost; TIMEOUT = 15; POOLING = True; DATABASE = 'postgres'; PASSWORD = 'Password12!'; USER ID = 'postgres'";
+            "PORT = 5432; HOST = localhost; TIMEOUT = 15; POOLING = True; DATABASE = 'event-store'; PASSWORD = 'Password12!'; USER ID = 'postgres'";
 
         using var documentStore = DocumentStore.For(options =>
         {
             options.Connection(connectionString);
             options.DatabaseSchemaName = options.Events.DatabaseSchemaName = "IntroductionToEventSourcing";
+
+            options.Events.AddEventType(typeof(ShoppingCartOpened));
+            options.Events.AddEventType(typeof(ProductItemAddedToShoppingCart));
+            options.Events.AddEventType(typeof(ProductItemRemovedFromShoppingCart));
+            options.Events.AddEventType(typeof(ShoppingCartConfirmed));
+            options.Events.AddEventType(typeof(ShoppingCartCanceled));
         });
+
         await using var documentSession = documentStore.LightweightSession();
 
         documentSession.Listeners.Add(MartenEventsChangesListener.Instance);

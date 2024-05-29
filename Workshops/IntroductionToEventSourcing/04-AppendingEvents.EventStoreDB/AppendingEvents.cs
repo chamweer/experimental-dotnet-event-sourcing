@@ -1,5 +1,6 @@
 using EventStore.Client;
 using FluentAssertions;
+using System.Text.Json;
 using Xunit;
 
 namespace IntroductionToEventSourcing.AppendingEvents;
@@ -34,7 +35,7 @@ public abstract record ShoppingCartEvent
     ): ShoppingCartEvent;
 
     // This won't allow external inheritance
-    private ShoppingCartEvent(){}
+    private ShoppingCartEvent() { }
 }
 
 // VALUE OBJECTS
@@ -59,7 +60,15 @@ public class GettingStateFromEventsTests
     // TODO: Fill append events logic here.
     private Task<IWriteResult> AppendEvents(EventStoreClient eventStore, string streamName, object[] events,
         CancellationToken ct) =>
-        throw new NotImplementedException();
+        eventStore.AppendToStreamAsync(
+            streamName,
+            StreamRevision.None,
+            events.Select(e =>
+                new EventData(
+                    Uuid.NewUuid(),
+                    e.GetType().ToString(),
+                    JsonSerializer.SerializeToUtf8Bytes(e)))
+            , cancellationToken: ct);
 
     [Fact]
     [Trait("Category", "SkipCI")]
