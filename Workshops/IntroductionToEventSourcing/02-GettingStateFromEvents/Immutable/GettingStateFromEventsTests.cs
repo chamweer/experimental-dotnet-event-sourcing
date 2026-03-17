@@ -1,7 +1,9 @@
 using FluentAssertions;
+using ImTools;
 using Xunit;
 
 namespace IntroductionToEventSourcing.GettingStateFromEvents.Immutable;
+
 using static ShoppingCartEvent;
 
 // EVENTS
@@ -33,7 +35,7 @@ public abstract record ShoppingCartEvent
     ): ShoppingCartEvent;
 
     // This won't allow external inheritance
-    private ShoppingCartEvent(){}
+    private ShoppingCartEvent() { }
 }
 
 // VALUE OBJECTS
@@ -51,7 +53,10 @@ public record ShoppingCart(
     PricedProductItem[] ProductItems,
     DateTime? ConfirmedAt = null,
     DateTime? CanceledAt = null
-);
+)
+{
+    public static ShoppingCart Empty = new(Guid.Empty, Guid.Empty, ShoppingCartStatus.Pending, []);
+};
 
 public enum ShoppingCartStatus
 {
@@ -63,8 +68,61 @@ public enum ShoppingCartStatus
 public class GettingStateFromEventsTests
 {
     // 1. Add logic here
-    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events) =>
-        throw new NotImplementedException();
+    private static ShoppingCart GetShoppingCart(IEnumerable<ShoppingCartEvent> events)
+    {
+        var cart = ShoppingCart.Empty;
+        foreach (var @event in events)
+        {
+            cart = @event switch
+            {
+                ShoppingCartOpened(Guid cartId, Guid clientId) => cart with { Id = cartId, ClientId = clientId },
+                ProductItemAddedToShoppingCart(_, PricedProductItem product) => AddProduct(product),
+                ProductItemRemovedFromShoppingCart(_, PricedProductItem product) => RemoveProduct(product),
+                ShoppingCartConfirmed(_, DateTime confirmedAt) => cart with { Status = ShoppingCartStatus.Confirmed, ConfirmedAt = confirmedAt },
+                ShoppingCartCanceled(_, DateTime cancelledAt) => cart with { Status = ShoppingCartStatus.Canceled, CanceledAt = cancelledAt },
+                _ => cart
+            };
+        }
+
+        return cart;
+
+        ShoppingCart AddProduct(PricedProductItem product)
+        {
+            var found = false;
+            for (var i = 0; i < cart.ProductItems.Length; i++)
+            {
+                if (cart.ProductItems[i].ProductId != product.ProductId)
+                {
+                    continue;
+                }
+
+                found = true;
+                cart.ProductItems[i] = new(cart.ProductItems[i].ProductId, cart.ProductItems[i].Quantity + product.Quantity, cart.ProductItems[i].UnitPrice);
+            }
+
+            if (!found)
+            {
+                return cart with { ProductItems = [.. cart.ProductItems, product] };
+            }
+
+            return cart;
+        }
+
+        ShoppingCart RemoveProduct(PricedProductItem product)
+        {
+            for (var i = 0; i < cart.ProductItems.Length; i++)
+            {
+                if (cart.ProductItems[i].ProductId != product.ProductId)
+                {
+                    continue;
+                }
+
+                cart.ProductItems[i] = new(cart.ProductItems[i].ProductId, cart.ProductItems[i].Quantity - product.Quantity, cart.ProductItems[i].UnitPrice);
+            }
+
+            return cart;
+        }
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]

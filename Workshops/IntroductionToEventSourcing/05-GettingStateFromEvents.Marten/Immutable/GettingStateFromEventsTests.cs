@@ -53,7 +53,62 @@ public record ShoppingCart(
     PricedProductItem[] ProductItems,
     DateTime? ConfirmedAt = null,
     DateTime? CanceledAt = null
-);
+)
+{
+    public ShoppingCart Apply(ShoppingCartEvent @event) =>
+        @event switch
+        {
+            ShoppingCartOpened opened =>
+                new ShoppingCart(
+                    opened.ShoppingCartId,
+                    opened.ClientId,
+                    ShoppingCartStatus.Pending,
+                    []
+                ),
+            ProductItemAddedToShoppingCart productItemAdded =>
+                this with
+                {
+                    ProductItems = ProductItems
+                        .Concat([productItemAdded.ProductItem])
+                        .GroupBy(pi => pi.ProductId)
+                        .Select(group => group.Count() == 1
+                            ? group.First()
+                            : new PricedProductItem(
+                                group.Key,
+                                group.Sum(pi => pi.Quantity),
+                                group.First().UnitPrice
+                            )
+                        )
+                        .ToArray()
+                },
+            ProductItemRemovedFromShoppingCart productItemRemoved =>
+                this with
+                {
+                    ProductItems = ProductItems
+                        .Select(pi => pi.ProductId == productItemRemoved.ProductItem.ProductId
+                            ? pi with { Quantity = pi.Quantity - productItemRemoved.ProductItem.Quantity }
+                            : pi
+                        )
+                        .Where(pi => pi.Quantity > 0)
+                        .ToArray()
+                },
+            ShoppingCartConfirmed confirmed =>
+                this with
+                {
+                    Status = ShoppingCartStatus.Confirmed,
+                    ConfirmedAt = confirmed.ConfirmedAt
+                },
+            ShoppingCartCanceled canceled =>
+                this with
+                {
+                    Status = ShoppingCartStatus.Canceled,
+                    CanceledAt = canceled.CanceledAt
+                },
+            _ => this
+        };
+
+    private ShoppingCart() : this(Guid.Empty, Guid.Empty, ShoppingCartStatus.Pending, []) { } // Let's make Marten happy
+}
 
 public enum ShoppingCartStatus
 {
@@ -71,12 +126,13 @@ public class GettingStateFromEventsTests: MartenTest
     /// <param name="shoppingCartId"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    private static Task<ShoppingCart> GetShoppingCart(
-        IDocumentSession documentSession,
-        Guid shoppingCartId,
-        CancellationToken cancellationToken) =>
-        // 1. Add logic here
-        throw new NotImplementedException();
+    private static async Task<ShoppingCart> GetShoppingCart(IDocumentSession documentSession, Guid shoppingCartId,
+            CancellationToken cancellationToken)
+    {
+        var shoppingCart = await documentSession.Events.AggregateStreamAsync<ShoppingCart>(shoppingCartId, token: cancellationToken);
+
+        return shoppingCart ?? throw new InvalidOperationException("Shopping Cart was not found!");
+    }
 
     [Fact]
     [Trait("Category", "SkipCI")]

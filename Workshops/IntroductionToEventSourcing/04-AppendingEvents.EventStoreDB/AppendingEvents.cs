@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EventStore.Client;
 using FluentAssertions;
 using Xunit;
@@ -59,7 +60,16 @@ public class GettingStateFromEventsTests
     // TODO: Fill append events logic here.
     private Task<IWriteResult> AppendEvents(EventStoreClient eventStore, string streamName, object[] events,
         CancellationToken ct) =>
-        throw new NotImplementedException();
+        eventStore.AppendToStreamAsync(
+            streamName,
+            StreamState.Any,
+            events.Select(@event =>
+                new EventData(
+                    Uuid.NewUuid(),
+                    @event.GetType().FullName!,
+                    JsonSerializer.SerializeToUtf8Bytes(@event)
+                )
+            ), cancellationToken: ct);
 
     [Fact]
     [Trait("Category", "SkipCI")]
